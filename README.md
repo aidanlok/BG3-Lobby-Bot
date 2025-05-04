@@ -1,4 +1,4 @@
-# BG3 Lobby Bot
+# Baldur's Gate 3 Discord Lobby Bot
 
 A quick Discord bot I wrote for my friends and I, who recently started playing Baldur's Gate 3 together.
 
