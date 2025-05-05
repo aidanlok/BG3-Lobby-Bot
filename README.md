@@ -2,6 +2,8 @@
 
 A quick Discord bot I wrote for my friends and I, who recently started playing Baldur's Gate 3 together.
 
+![Baldur's Gate 3 lobby bot demo image showing a party in use](bg3_lobby_bot_demo.png)
+
 # Features
 
 - Reads a user's activity to see if they create a BG3 multiplayer lobby
