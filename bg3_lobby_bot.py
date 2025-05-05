@@ -18,7 +18,7 @@ CHANNEL_ID = int(os.getenv('CHANNEL_ID', '0'))
 BG3_NAME = "Baldur's Gate 3"
 DATA_FILE = 'code_data.json'
 LOG_FILE = 'bg3_lobby_bot.log'
-BOT_VERSION = '1.1.0'
+BOT_VERSION = '1.1.1'
 
 # Logging setup: rotating file and console
 logger = logging.getLogger('bg3_lobby_bot')
@@ -180,6 +180,7 @@ async def subscribe(interaction: discord.Interaction):
     if uid in data['subscribers']:
         return await interaction.response.send_message("🔔 You are already subscribed.", ephemeral=True)
     data['subscribers'].append(uid)
+    logger.info(f"User {uid} subscribed to code changes.")
     save_data(data)
     await interaction.response.send_message("🔔 You will now receive DMs when the code changes. You may unsubscribe at any time by using `/party unsubscribe`.", ephemeral=True)
 
@@ -189,6 +190,7 @@ async def unsubscribe(interaction: discord.Interaction):
     if uid not in data['subscribers']:
         return await interaction.response.send_message("🔕 You are not subscribed. You may subscribe by using `/party subscribe`.", ephemeral=True)
     data['subscribers'].remove(uid)
+    logger.info(f"User {uid} unsubscribed from code changes.")
     save_data(data)
     await interaction.response.send_message("🔕 You have been unsubscribed. You may resubscribe at any time.", ephemeral=True)
 

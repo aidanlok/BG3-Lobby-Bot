@@ -4,11 +4,12 @@ A quick Discord bot I wrote for my friends and I, who recently started playing B
 
 # Features
 
-- Reads a user's ID to see if they create a BG3 multiplayer lobby
+- Reads a user's activity to see if they create a BG3 multiplayer lobby
 - Pings them to remind them to set the connection code
 - Automatically sends and updates a permanent message in a specified channel with the current code, party information (slots filled/capacity), and the last updated time
 - Slash commands for the host to get/clear the lobby code
 - Slash command for players to get the current code, along with all of the other usual info
+- Slash commands for subscribing/unsubscribing to DMs that are sent out when the code changes
 
 # Requirements
 
