@@ -18,7 +18,7 @@ CHANNEL_ID = int(os.getenv('CHANNEL_ID', '0'))
 BG3_NAME = "Baldur's Gate 3"
 DATA_FILE = 'code_data.json'
 LOG_FILE = 'bg3_lobby_bot.log'
-BOT_VERSION = '1.1.3'
+BOT_VERSION = '1.2.1'
 
 # Logging setup: rotating file and console
 logger = logging.getLogger('bg3_lobby_bot')
@@ -332,6 +332,42 @@ async def on_presence_update(before: discord.Member, after: discord.Member):
         save_data(data)
         # Finally, refresh the embed message
         await update_message()
+
+# New top-level status command
+@bot.tree.command(name="bg3lb_status", description="Show host, subscribers, and current host activity")
+async def bg3lb_status(interaction: discord.Interaction):
+    # Host info
+    try:
+        host = await bot.fetch_user(USER_ID)
+        host_mention = host.mention
+    except Exception:
+        host_mention = f"<@{USER_ID}>"
+
+    # Subscribers list
+    subs = data.get('subscribers', [])
+    subs_list = ", ".join(f"<@{u}>" for u in subs) if subs else "None"
+
+    # Host activity
+    activity = "None"
+    guild = _lobby_channel.guild if _lobby_channel else None
+    if guild:
+        member = guild.get_member(USER_ID)
+        if member:
+            acts = [getattr(a, 'name', str(a)) for a in member.activities if type(a) == discord.Activity]
+            if acts:
+                activity = ", ".join(acts)
+
+    content = (
+        f"🔰 **Host:** {host_mention}\n"
+        f"👥 **Subscribers:** {subs_list}\n"
+        f"🎮 **Host activities:** {activity}\n"
+        f"📋 **Lobby channel:** <#{CHANNEL_ID}>\n"
+        f"🔗 **Current code:** `{data.get('code') or 'None'}`\n"
+        f"👥 **Party info:** {data.get('party_info') or 'N/A'}\n"   
+        f"⏰ **Code last updated:** <t:{data.get('timestamp')}:f>\n"   
+        f"🤖 **Version number:** {BOT_VERSION}\n"  
+    )
+    await interaction.response.send_message(content, ephemeral=True)
 
 # Bot ready
 @bot.event
