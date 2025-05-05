@@ -18,7 +18,7 @@ CHANNEL_ID = int(os.getenv('CHANNEL_ID', '0'))
 BG3_NAME = "Baldur's Gate 3"
 DATA_FILE = 'code_data.json'
 LOG_FILE = 'bg3_lobby_bot.log'
-BOT_VERSION = '1.1.2'
+BOT_VERSION = '1.1.3'
 
 # Logging setup: rotating file and console
 logger = logging.getLogger('bg3_lobby_bot')
@@ -195,9 +195,37 @@ async def unsubscribe(interaction: discord.Interaction):
     await interaction.response.send_message("🔕 You have been unsubscribed. You may resubscribe at any time.", ephemeral=True)
 
 @code_group.command(name="set", description="Set the direct connection code for BG3 multiplayer")
-async def code_set(interaction: discord.Interaction, code: str):
+@app_commands.describe(notify="Whether to notify subscribers of the changed code")
+async def code_set(interaction: discord.Interaction, code: str, notify: bool = True):
     if interaction.user.id != USER_ID:
         return await interaction.response.send_message("❌ Only the host can use this command.", ephemeral=True)
+    if not (code.isalnum() and len(code) == 14):
+        return await interaction.response.send_message("❌ Code must be 14 alphanumeric (e.g. 72ARXMVCQG35Z6).", ephemeral=True)
+    old_code = data.get('code')
+    data['code'] = code
+    data['timestamp'] = int(datetime.now().timestamp())
+    data['party_info'] = data.get('party_info')
+
+    # delete any existing ping
+    if data.get('ping_message_id'):
+        try:
+            old = await _lobby_channel.fetch_message(data['ping_message_id'])
+            await old.delete()
+        except:
+            pass
+    data['ping_message_id'] = None
+    save_data(data)
+    await update_message()
+
+    # DM subscribers if code changed and notify is True
+    if notify and old_code != code:
+        for uid in data['subscribers']:
+            try:
+                user = await bot.fetch_user(uid)
+                await user.send(f"🔑 New BG3 party code: `{code}`")
+            except discord.Forbidden:
+                logger.warning(f"Cannot DM user {uid}")
+    return await interaction.response.send_message(f"✅ Code set to **{code}** (Notify subs: {notify})", ephemeral=True)
     if not (code.isalnum() and len(code) == 14):
         return await interaction.response.send_message("❌ Code must be 14 alphanumeric (e.g. 72ARXMVCQG35Z6).", ephemeral=True)
     old_code = data.get('code')
