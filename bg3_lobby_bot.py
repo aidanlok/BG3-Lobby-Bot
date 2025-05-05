@@ -18,7 +18,7 @@ CHANNEL_ID = int(os.getenv('CHANNEL_ID', '0'))
 BG3_NAME = "Baldur's Gate 3"
 DATA_FILE = 'code_data.json'
 LOG_FILE = 'bg3_lobby_bot.log'
-BOT_VERSION = '1.1.1'
+BOT_VERSION = '1.1.2'
 
 # Logging setup: rotating file and console
 logger = logging.getLogger('bg3_lobby_bot')
@@ -271,17 +271,38 @@ async def code_clear(interaction: discord.Interaction):
 async def on_presence_update(before: discord.Member, after: discord.Member):
     if after.id != USER_ID:
         return
+
+    # Parse current and previous party info
     new_party = parse_party_info(after.activities)
-    was_in = bool(data.get('party_info'))
-    if new_party and not was_in:
+    old_party = data.get('party_info')
+
+    # If party info changed (join, leave, or size change)
+    if new_party != old_party:
+        # Update stored party info and timestamp
         data['party_info'] = new_party
-        if _lobby_perms.send_messages:
-            msg = await _lobby_channel.send(f"<@{USER_ID}> please set code via `/party set` (Party: {new_party})")
-            data['ping_message_id'] = msg.id
+        data['timestamp'] = int(datetime.now().timestamp())
+
+        # If party ended, clear the code and any pending ping
+        if new_party is None:
+            data['code'] = None
+            if data.get('ping_message_id'):
+                try:
+                    old_ping = await _lobby_channel.fetch_message(data['ping_message_id'])
+                    await old_ping.delete()
+                except:
+                    pass
+                data['ping_message_id'] = None
+
+        # Only send a ping when the party first appears AND no code is set
+        if new_party and old_party is None and data.get('code') is None:
+            if _lobby_perms.send_messages:
+                ping = await _lobby_channel.send(
+                    f"<@{USER_ID}> please set code via `/party set` (Party: {new_party})"
+                )
+                data['ping_message_id'] = ping.id
+
         save_data(data)
-    elif not new_party and was_in:
-        data.update({'code': None, 'party_info': None, 'timestamp': int(datetime.now().timestamp())})
-        save_data(data)
+        # Finally, refresh the embed message
         await update_message()
 
 # Bot ready
