@@ -21,6 +21,7 @@ You can host this bot yourself! Just create a new app ***and bot*** on the Disco
 
 - View Channels
 - Send Messages
+- Manage Messages
 - Read Message History
 - Embed Links
 

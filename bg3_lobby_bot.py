@@ -18,7 +18,7 @@ CHANNEL_ID = int(os.getenv('CHANNEL_ID', '0'))
 BG3_NAME = "Baldur's Gate 3"
 DATA_FILE = 'code_data.json'
 LOG_FILE = 'bg3_lobby_bot.log'
-BOT_VERSION = '1.0.0'
+BOT_VERSION = '1.1.0'
 
 # Logging setup: rotating file and console
 logger = logging.getLogger('bg3_lobby_bot')
@@ -54,10 +54,16 @@ def save_data(data):
     loop = asyncio.get_event_loop()
     _save_handle = loop.call_later(2, lambda: _immediate_save(data))
 
-# Load utility with schema validation
+# Load utility with schema validation and subscribers list
 def load_data():
-    default = {'code': None, 'timestamp': None, 'party_info': None,
-               'message_id': None, 'ping_message_id': None}
+    default = {
+        'code': None,
+        'timestamp': None,
+        'party_info': None,
+        'message_id': None,
+        'ping_message_id': None,
+        'subscribers': []
+    }
     try:
         with open(DATA_FILE, 'r') as f:
             raw = json.load(f)
@@ -65,12 +71,17 @@ def load_data():
         logger.warning(f"Data error ({e}), using defaults.")
         return default.copy()
     if not isinstance(raw, dict):
-        logger.warning("Data file not dict, resetting.")
+        logger.warning("Data file not a dict, resetting.")
         return default.copy()
     data = default.copy()
     for k, v in raw.items():
         if k in data:
             data[k] = v
+    subs = data.get('subscribers')
+    if not isinstance(subs, list):
+        data['subscribers'] = []
+    else:
+        data['subscribers'] = [int(u) for u in subs if isinstance(u, (int, str))]
     return data
 
 # Bot setup
@@ -84,7 +95,7 @@ data = load_data()
 _lobby_channel: discord.TextChannel = None
 _lobby_perms = None
 
-# Helper: parse party info from presence activities
+# Helper: parse party info
 def parse_party_info(activities) -> str | None:
     """
     Inspect a list of activities, return a 'current/max' party string if BG3 party detected.
@@ -92,18 +103,16 @@ def parse_party_info(activities) -> str | None:
     for act in activities:
         if getattr(act, 'name', None) == BG3_NAME and getattr(act, 'party', None):
             party = act.party
-            # party may be dict or object
-            size = None
-            if isinstance(party, dict):
-                size = party.get('size')
-            else:
-                size = getattr(party, 'size', None)
-            if size and isinstance(size, (list, tuple)) and len(size) == 2:
+            size = party.get('size') if isinstance(party, dict) else getattr(party, 'size', None)
+            if isinstance(size, (list, tuple)) and len(size) == 2:
                 return f"{size[0]}/{size[1]}"
     return None
 
 # Helper: build the embed
 def build_embed():
+    """
+    Build the embed for the lobby channel.
+    """
     code_val = data.get('code') or 'None'
     party_info = data.get('party_info') or 'N/A'
     ts = data.get('timestamp')
@@ -127,17 +136,17 @@ def build_embed():
         embed.add_field(name="Party Status", value=party_info, inline=True)
     if ts:
         embed.add_field(name="Last updated", value=f"<t:{ts}:f>", inline=False)
-    embed.set_footer(text=f"Use `/party info` • Bot v{BOT_VERSION}")
+    embed.set_footer(text=f"Use /party info • Bot v{BOT_VERSION}")
     return embed
 
-# Helper: send or edit message using cached channel & perms
+# Helper: send or edit message
 async def send_or_edit_message(embed):
     global _lobby_channel, _lobby_perms
     if not _lobby_channel:
         logger.error("Lobby channel not initialized.")
         return
-    if not _lobby_perms.send_messages or not _lobby_perms.embed_links:
-        logger.error("Missing send/embed permissions in lobby channel.")
+    if not (_lobby_perms.send_messages and _lobby_perms.embed_links):
+        logger.error("Missing permissions in lobby channel.")
         return
     msg_id = data.get('message_id')
     if msg_id:
@@ -162,8 +171,26 @@ async def update_message():
     embed = build_embed()
     await send_or_edit_message(embed)
 
-# Slash commands
-code_group = app_commands.Group(name="party", description="Manage BG3 multiplayer party info")
+# Slash commands group
+code_group = app_commands.Group(name="party", description="Manage BG3 party info")
+
+@code_group.command(name="subscribe", description="Subscribe for code change DMs")
+async def subscribe(interaction: discord.Interaction):
+    uid = interaction.user.id
+    if uid in data['subscribers']:
+        return await interaction.response.send_message("🔔 You are already subscribed.", ephemeral=True)
+    data['subscribers'].append(uid)
+    save_data(data)
+    await interaction.response.send_message("🔔 You will now receive DMs when the code changes. You may unsubscribe at any time by using `/party unsubscribe`.", ephemeral=True)
+
+@code_group.command(name="unsubscribe", description="Unsubscribe from code change DMs")
+async def unsubscribe(interaction: discord.Interaction):
+    uid = interaction.user.id
+    if uid not in data['subscribers']:
+        return await interaction.response.send_message("🔕 You are not subscribed. You may subscribe by using `/party subscribe`.", ephemeral=True)
+    data['subscribers'].remove(uid)
+    save_data(data)
+    await interaction.response.send_message("🔕 You have been unsubscribed. You may resubscribe at any time.", ephemeral=True)
 
 @code_group.command(name="set", description="Set the direct connection code for BG3 multiplayer")
 async def code_set(interaction: discord.Interaction, code: str):
@@ -171,8 +198,10 @@ async def code_set(interaction: discord.Interaction, code: str):
         return await interaction.response.send_message("❌ Only the host can use this command.", ephemeral=True)
     if not (code.isalnum() and len(code) == 14):
         return await interaction.response.send_message("❌ Code must be 14 alphanumeric (e.g. 72ARXMVCQG35Z6).", ephemeral=True)
+    old_code = data.get('code')
     data['code'] = code
     data['timestamp'] = int(datetime.now().timestamp())
+    data['party_info'] = data.get('party_info')
     if data.get('ping_message_id'):
         try:
             old = await _lobby_channel.fetch_message(data['ping_message_id'])
@@ -182,6 +211,15 @@ async def code_set(interaction: discord.Interaction, code: str):
     data['ping_message_id'] = None
     save_data(data)
     await update_message()
+
+    # DM subscribers if code changed
+    if old_code != code:
+        for uid in data['subscribers']:
+            try:
+                user = await bot.fetch_user(uid)
+                await user.send(f"🔑 New BG3 party code: `{code}`")
+            except discord.Forbidden:
+                logger.warning(f"Cannot DM user {uid}")
     await interaction.response.send_message(f"✅ Code set to **{code}**", ephemeral=True)
 
 @code_group.command(name="info", description="Get the current BG3 multiplayer connection code and party status")
@@ -201,14 +239,20 @@ async def code_info(interaction: discord.Interaction):
         lines.append("👥 **Party:** N/A")
     if ts:
         lines.append(f"⏰ **Last updated:** <t:{ts}:f>")
+    # Subscription status hint
+    if interaction.user.id in data['subscribers']:
+        lines.append("🔔 You are subscribed to code updates. Use `/party unsubscribe` to opt out.")
+    else:
+        lines.append("ℹ️ Use `/party subscribe` to receive DMs when the code changes.")
     await interaction.response.send_message("\n".join(lines), ephemeral=True)
 
 @code_group.command(name="clear", description="Clear the current BG3 multiplayer connection code")
 async def code_clear(interaction: discord.Interaction):
     if interaction.user.id != USER_ID:
-        return await interaction.response.send_message("❌ Only owner.", ephemeral=True)
+        return await interaction.response.send_message("❌ Only the host can clear the code.", ephemeral=True)
     data['code'] = None
     data['timestamp'] = int(datetime.now().timestamp())
+    data['party_info'] = None
     if data.get('ping_message_id'):
         try:
             old = await _lobby_channel.fetch_message(data['ping_message_id'])
@@ -220,7 +264,7 @@ async def code_clear(interaction: discord.Interaction):
     await update_message()
     await interaction.response.send_message("✅ Code cleared.", ephemeral=True)
 
-# Presence event using helper
+# Presence event
 @bot.event
 async def on_presence_update(before: discord.Member, after: discord.Member):
     if after.id != USER_ID:
@@ -230,9 +274,7 @@ async def on_presence_update(before: discord.Member, after: discord.Member):
     if new_party and not was_in:
         data['party_info'] = new_party
         if _lobby_perms.send_messages:
-            msg = await _lobby_channel.send(
-                f"<@{USER_ID}> please set code via `/party set` (Party: {new_party})"
-            )
+            msg = await _lobby_channel.send(f"<@{USER_ID}> please set code via `/party set` (Party: {new_party})")
             data['ping_message_id'] = msg.id
         save_data(data)
     elif not new_party and was_in:
